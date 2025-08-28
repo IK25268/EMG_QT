@@ -1,6 +1,6 @@
 #pragma once
 
-#include <qDebug>
+# include <qDebug>
 #include <QSet>
 #include <QList>
 #include <QVector>
@@ -15,14 +15,15 @@ typedef struct Compl {
 }Compl;
 
 typedef struct WwltConf {
-    QList<QList<Compl>> values;
+    QList<QList<Compl>> values; //freq<pos<wvlt_value>>
     uint16_t left_fr;
 }WwltConf;
 
 typedef struct EachFreqCell {
+    // QVector<Compl>::Iterator ptr_to_left;
     fftw_complex* ptr_to_left;
-    QList<Compl> freq_pos_value;
-    double freq_value_mean;
+    QList<Compl> freq_pos_value; //1960, 1980 - pos<compl_value>
+    double freq_value_mean; //freq<value - mean of ifft of pos<compl_value> - (multipl sampl_ff and wvlt)>
 }EachFreqCell;
 
 typedef struct wavelet_cell
@@ -30,7 +31,9 @@ typedef struct wavelet_cell
     fftw_complex* sample_fft_in;
     fftw_complex* sample_fft_out;
     fftw_plan plan;
-    QList<EachFreqCell> each_freq_cell;
+    // QVector<Compl> linArr;
+
+    QList<EachFreqCell> each_freq_cell; //for each frequency
 }wavelet_cell;
 
 

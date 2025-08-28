@@ -1,8 +1,22 @@
 #include "rwfile.h"
 
+std::string generateUniqueFilename(const std::string& baseName,
+                                   const std::string& extension = ".txt") {
+    int counter = 0;
+    std::string filename;
+
+    do {
+        filename = baseName + "_" + std::to_string(counter) + extension;
+        counter++;
+    } while (std::filesystem::exists(filename));
+
+    return filename;
+}
+
 RWFile::RWFile(QObject *parent) : QObject(parent)
 {
-
+    timer_file_read = new QTimer(this);
+    connect(timer_file_read, &QTimer::timeout, this, &RWFile::readHndlr);
 }
 
 RWFile::~RWFile()
@@ -15,6 +29,19 @@ RWFile::~RWFile()
     {
         out_range.close();
     }
+    if (fileselect)
+    {
+        in_read.close();
+    }
+
+    delete timer_file_read;
+
+}
+
+void RWFile::setRangeCounterRemain(uint64_t val)
+{
+    range_counter_remain = val;
+    rec_range = true;
 }
 
 void RWFile::recStartStopHndlr()
@@ -24,20 +51,15 @@ void RWFile::recStartStopHndlr()
         if (!rec_startstop)
         {
             time_counter_startstop = 1;
-            out_startstop.open("emg1.txt");
-            button_startstop->setStyleSheet("QPushButton { background-color: red; color: white; }");
-            button_startstop->setText("Write(Start/Stop): Writing");
-            button_range->setStyleSheet("QPushButton { background-color: gray; color: white; }");
-            button_range->setText("Write(Range): Wait");
+            std::string fcr = generateUniqueFilename("emg_startstop",".txt");
+            out_startstop.open(fcr);
+            emit startStopWriting();
             rec_startstop = true;
         }
         else
         {
             out_startstop.close();
-            button_startstop->setStyleSheet("QPushButton { background-color: green; color: white; }");
-            button_startstop->setText("Write(Start/Stop): Ready");
-            button_range->setStyleSheet("QPushButton { background-color: green; color: white; }");
-            button_range->setText("Write(Range): Ready");
+            emit startStopReady();
             rec_startstop = false;
         }
     }
@@ -50,26 +72,70 @@ void RWFile::recRangeHndlr()
         if (!rec_range)
         {
             time_counter_range = 1;
-            out_range.open("emg2.txt");
-            range_counter_remain = input_packetswrite->value();
-            input_packetswrite->setReadOnly(true);
-            button_startstop->setStyleSheet("QPushButton { background-color: gray; color: white; }");
-            button_startstop->setText("Write(Start/Stop): Wait");
-            button_range->setStyleSheet("QPushButton { background-color: red; color: white; }");
-            button_range->setText("Write(Range): Writing");
-            rec_range = true;
+            std::string fcr = generateUniqueFilename("emg_range",".txt");
+            out_range.open(fcr);
+            emit rangeWriting();
+
         }
         else
         {
             out_range.close();
-            input_packetswrite->setValue(1);
-            input_packetswrite->setReadOnly(false);
-            button_startstop->setStyleSheet("QPushButton { background-color: green; color: white; }");
-            button_startstop->setText("Write(Start/Stop): Ready");
-            button_range->setStyleSheet("QPushButton { background-color: green; color: white; }");
-            button_range->setText("Write(Range): Ready");
+            emit rangeReady();
             rec_range = false;
         }
+    }
+}
+
+void RWFile::selectFileHndlr()
+{
+    if (fileselect)
+    {
+        if (playpause)
+        {
+            timer_file_read->stop();
+            emit plotStop();
+            emit buttonPause();
+            playpause = false;
+        }
+        in_read.close();
+    }
+    emit plotDataClear();
+    emit fileNameGet();
+}
+
+void RWFile::openFileHndlr(const QString& str)
+{
+    in_read.open(str.toStdString().c_str(), std::fstream::in);
+    if (in_read.is_open())
+    {
+        emit buttonSelectEN();
+        fileselect = true;
+    }
+    else
+    {
+        emit buttonSelectDIS();
+        fileselect = false;
+    }
+}
+
+void RWFile::playPauseHndlr()
+{
+    if (!playpause)
+    {
+        if (fileselect)
+        {
+            timer_file_read->start(10);
+            emit plotStart();
+            emit buttonPlay();
+            playpause = true;
+        }
+    }
+    else
+    {
+        timer_file_read->stop();
+        emit plotStop();
+        emit buttonPause();
+        playpause = false;
     }
 }
 
@@ -105,13 +171,42 @@ void RWFile::writeHndlr(const QVector<uint16_t> &buf)
         if (range_counter_remain == 0)
         {
             out_range.close();
-            input_packetswrite->setValue(1);
-            input_packetswrite->setReadOnly(false);
-            button_startstop->setStyleSheet("QPushButton { background-color: green; color: white; }");
-            button_startstop->setText("Write(Start/Stop): Ready");
-            button_range->setStyleSheet("QPushButton { background-color: green; color: white; }");
-            button_range->setText("Write(Range): Ready");
+            emit rangeReady();
             rec_range = false;
         }
     }
+}
+
+void RWFile::readHndlr()
+{
+    for(uint8_t i = 0; i < 20; i++)
+    {
+        std::string line;
+        if (std::getline(in_read, line))
+        {
+            QVector<uint16_t> buf(8, 0);
+            std::istringstream iss(line);
+            for (int j = 0; j < 8; j++) {
+                uint16_t num;
+                iss >> num;
+                buf[j] = num;
+            }
+            emit dataRead(buf);
+        }
+        else
+        {
+            in_read.close();
+            emit plotStop();
+            timer_file_read->stop();
+            emit buttonPause();
+            playpause = false;
+        }
+    }
+}
+
+void RWFile::timerReadStop()
+{
+    fileselect = false;
+    playpause = false;
+    timer_file_read->stop();
 }

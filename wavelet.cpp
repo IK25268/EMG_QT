@@ -14,23 +14,23 @@ QList<Compl> wavelet::calcWaveletFreq( double i_freq, double i_freq_w0, double f
     //     smpl_pos = smpl_pos + 1.0;
     // }
 
-        expifft_summ[0].real = real * cos( (M_PI/((double)1024) ) * freq_pos * 1970.0 );
-        expifft_summ[0].imag = real * sin( (M_PI/((double)1024) ) * freq_pos * 1970.0 );
+        expifft_summ[0].real = real * cos( (M_PI/((double)512) ) * freq_pos * 970.0 );
+        expifft_summ[0].imag = real * sin( (M_PI/((double)512) ) * freq_pos * 970.0 );
         // expifft_summ[1].real = 0;
         // expifft_summ[1].imag = 0;
-        expifft_summ[1].real = real * cos( (M_PI/((double)1024) ) * freq_pos * 1990.0 );
-        expifft_summ[1].imag = real * sin( (M_PI/((double)1024) ) * freq_pos * 1990.0 );
+        expifft_summ[1].real = real * cos( (M_PI/((double)512) ) * freq_pos * 990.0 );
+        expifft_summ[1].imag = real * sin( (M_PI/((double)512) ) * freq_pos * 990.0 );
         // expifft_summ[0].real = 0;
         // expifft_summ[0].imag = 0;
 
     return expifft_summ;
 }
 
-wavelet::wavelet() : cells(8, {}), freq_fft(), wawelets_Morle_fft(1024, {})
+wavelet::wavelet() : cells(8, {}), freq_fft(), wawelets_Morle_fft(512, {})
 {
-    countToFFT = 2048;
-    half_countToFFT = 1024;
-    double half_freqDiff = 1000.0 / 1023.0;
+    countToFFT = 1024;
+    half_countToFFT = 512;
+    double half_freqDiff = 500.0 / 511.0;
     double half_i_double = 0.0;
     for (uint64_t i = 0; i < (half_countToFFT); i++)    {
         freq_fft.append(half_i_double);
@@ -41,7 +41,7 @@ wavelet::wavelet() : cells(8, {}), freq_fft(), wawelets_Morle_fft(1024, {})
     {
         (*cells_i).sample_fft_in = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * countToFFT);
         (*cells_i).sample_fft_out = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * countToFFT);
-        (*cells_i).each_freq_cell = QList<EachFreqCell>(1024);
+        (*cells_i).each_freq_cell = QList<EachFreqCell>(512);
         for(auto each_freq_cell__for_freq = (*cells_i).each_freq_cell.begin(); each_freq_cell__for_freq != (*cells_i).each_freq_cell.end(); each_freq_cell__for_freq++)
         {
             each_freq_cell__for_freq->freq_pos_value = QList<Compl>(2);
@@ -54,7 +54,7 @@ wavelet::wavelet() : cells(8, {}), freq_fft(), wawelets_Morle_fft(1024, {})
     while(wawelets_fft_i != wawelets_Morle_fft.end())
     {
 
-        double freqDiff = 2000.0 / 2047.0;
+        double freqDiff = 1000.0 / 1023.0;
         double i_freq = 0.0;
         bool flag = false;
 

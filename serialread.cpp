@@ -27,14 +27,11 @@ void SerialPortWorker::initPort()
 
     COMMTIMEOUTS timeouts;
     ::GetCommTimeouts(hPort, &timeouts);
-    timeouts.ReadIntervalTimeout = 1;
+    timeouts.ReadIntervalTimeout = 1; // 1 мс между байтами
     timeouts.ReadIntervalTimeout = MAXDWORD;
     timeouts.ReadTotalTimeoutMultiplier = 0;
     timeouts.ReadTotalTimeoutConstant = 0;
     ::SetCommTimeouts(hPort, &timeouts);
-
-    char byte = 0x55;
-    qint64 bytesWritten = serial->write(&byte, 1);
 
     connect(serial, &QSerialPort::readyRead, this, &SerialPortWorker::processData);
 }
@@ -66,8 +63,12 @@ void SerialPortWorker::processData() {
 
                 uint16_t fletcher2 = fletcher16_12bytes(datas);
 
+                //count_skip++;
+
                 if (fletcher1 == fletcher2)
+                // if (true)
                 {
+                    //count_check++;
 
                     QVector<uint16_t> buf(8, 0);
 
@@ -86,6 +87,7 @@ void SerialPortWorker::processData() {
                         i_dma++;
                     }
                     emit dataReceived(buf);
+                    emit sendBuf(buf);
                 }
                 else
                 {
@@ -103,8 +105,22 @@ void SerialPortWorker::processData() {
 
 void SerialPortWorker::commandToStopADC()
 {
-    char byte = 0x33;
-    qint64 bytesWritten = serial->write(&byte, 1);
+    if (ADCEN)
+    {
+        char byte = 0x33;
+        qint64 bytesWritten = serial->write(&byte, 1);
+        ADCEN = false;
+    }
+}
+
+void SerialPortWorker::commandToStartADC()
+{
+    if (!ADCEN)
+    {
+        char byte = 0x55;
+        qint64 bytesWritten = serial->write(&byte, 1);
+        ADCEN = true;
+    }
 }
 
 uint16_t SerialPortWorker::fletcher16_12bytes(QByteArray data)
@@ -117,3 +133,4 @@ uint16_t SerialPortWorker::fletcher16_12bytes(QByteArray data)
     return (sum2 << 8) | sum1;
 }
 
+//------------

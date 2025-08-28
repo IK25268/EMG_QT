@@ -1,4 +1,5 @@
-#pragma once
+#ifndef SERIALREAD_H
+#define SERIALREAD_H
 
 #include <windows.h>
 #include <QThread>
@@ -14,15 +15,18 @@ public:
     explicit SerialPortWorker(QObject *parent = nullptr);
     ~SerialPortWorker();
 
+    bool ADCEN = false;
 
 public slots:
     void initPort();
     void processData();
     void commandToStopADC();
+    void commandToStartADC();
 
 signals:
     void dataReceived(const QVector<uint16_t> buf);
     void errorOccurred(const QString &error);
+    void sendBuf(const QVector<uint16_t> &buf);
 
 private:
     QSerialPort *serial;
@@ -35,3 +39,4 @@ private:
     bool calcMeanNext = false;
 };
 
+#endif // SERIALREAD_H

@@ -1,4 +1,5 @@
-#pragma once
+#ifndef MAINWINDOW_H
+#define MAINWINDOW_H
 
 
 #include <QMainWindow>
@@ -27,14 +28,18 @@
 #include <QPushButton>
 #include <QSpinBox>
 #include <QVBoxLayout>
+#include <QHBoxLayout>
 #include <QWidget>
 #include <QQueue>
 #include <QwtPlotOpenGLCanvas>
 #include <QwtPlotAbstractCanvas>
+#include <QLineEdit>
 typedef QwtPlotOpenGLCanvas Canvas;
 #include "rwfile.h"
 #include "wavelet.h"
 #include "serialread.h"
+#include "controlemg.h"
+#include "stream_sender_emg.h"
 
 class MainWindow : public QMainWindow
 {
@@ -46,16 +51,23 @@ public:
 
     void closeEvent(QCloseEvent *event) override;
 
-    RWFile* rwfile;
+    ControlEMG* control;
+
     wavelet* wavelet_;
 
-    QThread *m_serialThread;
-    SerialPortWorker *m_worker;
+    QThread *m_serial_Thread;
+    SerialPortWorker *m_serial_worker;
 
-    QTimer *timer_count_send;
+    QThread *m_rwfile_Thread;
+    RWFile *m_rwfile_worker;
+
+    QThread *m_sender_Thread;
+    StreamSenderEMG *m_sender_worker;
+
+    QTimer *timer_count_check;
     QTimer *timer_count_plot;
     QTimer *timer_count_wavelet;
-    uint64_t count_send = 0;
+    uint64_t count_check = 0;
     uint64_t count_plot = 0;
     uint64_t count_wavelet = 0;
 
@@ -66,13 +78,29 @@ public:
     QList<QwtPlotCurve*> curves_fft;
     uint64_t time_counter = 0;
 
+    uint8_t program_stage = 0;
+    bool waveletENDIS = false;
+    void buttonSerialPlotHndlr();
+    void buttonFilePlotHndlr();
+    void buttonWaveletSwitchHndlr();
+    void startSerialPlot();
+    void stopSerialPlot();
+    void startFilePlot();
+    void stopFilePlot();
+    void resetPlotData();
+
     QwtPlot *plot;
     QwtPlot *plot_fft;
-    QVBoxLayout *layout;
+    QVBoxLayout *layout_main;
+    QVBoxLayout *layout_V;
+    QHBoxLayout *layout_H;
+
+    void startTimersPlot();
+    void stopTimersPlot();
 
     void updatePlot();
     void updateWavelet();
-    void checkPlot();
+    void checkData();
     void handleData(const QVector<uint16_t> &buf);
     void handleError(const QString &error);
 
@@ -86,4 +114,9 @@ public:
 
 signals:
     void destroyedCustom();
+    void createCustom();
+    void timerReadStop();
+    void writeBuf(const QVector<uint16_t> &buf);
+
 };
+#endif // MAINWINDOW_H

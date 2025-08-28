@@ -18,23 +18,18 @@ MainWindow::MainWindow(QWidget *parent)
               Qt::black,
               Qt:: gray};
 
-    rwfile = new RWFile();
+    QWidget *centralWidget = new QWidget(this);
 
-    rwfile->button_startstop = new QPushButton("Write(Start/Stop): Wait", this);
-    rwfile->button_startstop->setStyleSheet("QPushButton { background-color: green; color: white; }");
-    rwfile->button_startstop->setText("Write(Start/Stop): Wait");
+    control = new ControlEMG();
+    control->ButtonInit(this);
 
-    rwfile->button_range = new QPushButton("Write(Range): Wait", this);
-    rwfile->button_range->setStyleSheet("QPushButton { background-color: green; color: white; }");
-    rwfile->button_range->setText("Write(Range): Wait");
+    layout_main = new QVBoxLayout(centralWidget);
+    layout_V = new QVBoxLayout();
+    layout_H = new QHBoxLayout();
 
-    rwfile->input_packetswrite = new QSpinBox(this);
-    rwfile->input_packetswrite->setValue(50);
-    rwfile->input_packetswrite->setMinimum(1);
-    rwfile->input_packetswrite->setMaximum(std::numeric_limits<int>::max());
-    rwfile->input_packetswrite->setReadOnly(false);
-
-    layout = new QVBoxLayout(this);
+    layout_H->addWidget(control->button_serialplot);
+    layout_H->addWidget(control->button_fileplot);
+    layout_H->addWidget(control->button_wavelet);
 
     //plot_data--------------
     plot = new QwtPlot(this);
@@ -67,7 +62,7 @@ MainWindow::MainWindow(QWidget *parent)
     plot->setCanvas(canvas);
     plot->setCanvasBackground(QColor( 30, 30, 50 ));
 
-    layout->addWidget(plot);
+    layout_V->addWidget(plot);
 
 
     plot_fft = new QwtPlot(this);
@@ -99,74 +94,325 @@ MainWindow::MainWindow(QWidget *parent)
     plot_fft->setCanvas(canvas_fft);
     plot_fft->setCanvasBackground(QColor( 30, 30, 50 ));
 
-    layout->addWidget(plot_fft);
+    layout_V->addWidget(plot_fft);
 
-    layout->addWidget(rwfile->button_startstop);
-    layout->addWidget(rwfile->button_range);
-    layout->addWidget(rwfile->input_packetswrite);
+    layout_main->addLayout(layout_H);
+    layout_main->addLayout(layout_V);
 
-    QWidget *centralWidget = new QWidget();
-    centralWidget->setLayout(layout);
     setCentralWidget(centralWidget);
+    setMinimumSize(800, 600);
+    resize(1000, 800);
 
+    time_counter = 0;
+    int64_t time_counter1 = -6000;
     for (uint16_t i = 1; i <=6000; i ++)
     {
-        time_signals.enqueue( 0);
+        time_signals.enqueue( (double)time_counter1/(double)2000 );
+        time_counter1 = time_counter1 + 1;
         for (QQueue<double> & dat : data_signals)
         {
             dat.enqueue(1);
         }
     }
 
-    connect(rwfile->button_startstop, &QPushButton::clicked, rwfile, &RWFile::recStartStopHndlr);
-    connect(rwfile->button_range, &QPushButton::clicked, rwfile, &RWFile::recRangeHndlr);
+    connect(control->button_fileplot, &QPushButton::clicked, this, &MainWindow::buttonFilePlotHndlr);
+    connect(control->button_serialplot, &QPushButton::clicked, this, &MainWindow::buttonSerialPlotHndlr);
+    connect(control->button_wavelet, &QPushButton::clicked, this, &MainWindow::buttonWaveletSwitchHndlr);
 
-    m_serialThread = new QThread(this);
-    m_worker = new SerialPortWorker();
-    m_worker->moveToThread(m_serialThread);
-
-    connect(m_worker, &SerialPortWorker::dataReceived, this, &MainWindow::handleData);
-    connect(m_worker, &SerialPortWorker::errorOccurred, this, &MainWindow::handleError);
-    connect(this, &MainWindow::destroyedCustom, m_worker, &SerialPortWorker::commandToStopADC);
-
-    connect(m_serialThread, &QThread::started, [this]() {
-        m_worker->initPort();
+    m_serial_Thread = new QThread(this);
+    m_serial_worker = new SerialPortWorker();
+    m_serial_worker->moveToThread(m_serial_Thread);
+    connect(m_serial_Thread, &QThread::started, [this]() {
+        m_serial_worker->initPort();
     });
+    m_serial_Thread->start();
 
-    m_serialThread->start();
+    m_rwfile_Thread = new QThread(this);
+    m_rwfile_worker = new RWFile();
+    m_rwfile_worker->moveToThread(m_rwfile_Thread);
+    m_rwfile_Thread->start();
+
+    m_sender_Thread = new QThread(this);
+    m_sender_worker = new StreamSenderEMG();
+    m_sender_worker->moveToThread(m_sender_Thread);
+    m_sender_Thread->start();
 
     timer_count_plot = new QTimer(this);
     connect(timer_count_plot, &QTimer::timeout, this, &MainWindow::updatePlot);
-    timer_count_plot->start(20);
 
     timer_count_wavelet = new QTimer(this);
     connect(timer_count_wavelet, &QTimer::timeout, this, &MainWindow::updateWavelet);
-    timer_count_wavelet->start(50);
 
-    timer_count_send = new QTimer(this);
-    connect(timer_count_send, &QTimer::timeout, this, &MainWindow::checkPlot);
-    timer_count_send->start(1000);
+    timer_count_check = new QTimer(this);
+    connect(timer_count_check, &QTimer::timeout, this, &MainWindow::checkData);
+
+    connect(this, &MainWindow::timerReadStop, m_rwfile_worker, &RWFile::timerReadStop);
+    connect(m_serial_worker, &SerialPortWorker::sendBuf, m_sender_worker, &StreamSenderEMG::SendBuf);
 }
 
 MainWindow::~MainWindow() {
-    delete rwfile;
-    m_serialThread->quit();
-    m_serialThread->wait();
-    delete m_worker;
-    delete m_serialThread;
-    timer_count_send->stop();
-    delete timer_count_send;
+    m_serial_Thread->quit();
+    m_serial_Thread->wait();
+    delete m_serial_worker;
+    delete m_serial_Thread;
+
+    m_rwfile_Thread->quit();
+    m_rwfile_Thread->wait();
+    delete m_rwfile_worker;
+    delete m_rwfile_Thread;
+
+    m_sender_Thread->quit();
+    m_sender_Thread->wait();
+    delete m_sender_worker;
+    delete m_sender_Thread;
+
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
+
     emit destroyedCustom();
     event->accept();
 }
 
-void MainWindow::checkPlot()
+void MainWindow::resetPlotData()
 {
-    qDebug()<<count_plot << " count_plot|| "<<count_send << " count_send"  << count_wavelet << " count_wavelet";
-    count_send = 0;
+    time_signals.clear();
+    for (QQueue<double> & dat : data_signals)
+    {
+        dat.clear();
+    }
+    time_counter = 0;
+    int64_t time_counter1 = -6000;
+    for (uint16_t i = 1; i <=6000; i ++)
+    {
+        time_signals.enqueue( (double)time_counter1/(double)2000 );
+        time_counter1 = time_counter1 + 1;
+        for (QQueue<double> & dat : data_signals)
+        {
+            dat.enqueue(1);
+        }
+    }
+}
+
+void MainWindow::buttonSerialPlotHndlr()
+{
+    switch (program_stage)
+    {
+        case 0:
+            startSerialPlot();
+            break;
+        case 1:
+            stopSerialPlot();
+            break;
+    }
+}
+
+void MainWindow::buttonFilePlotHndlr()
+{
+    switch (program_stage)
+    {
+        case 0:
+            startFilePlot();
+            break;
+        case 2:
+            stopFilePlot();
+            break;
+    }
+}
+
+void MainWindow::buttonWaveletSwitchHndlr()
+{
+    if (waveletENDIS)
+    {
+        waveletENDIS = false;
+        if (program_stage != 0)
+        {
+            timer_count_wavelet->stop();
+        }
+        control->ControlWaveletDisable();
+    }
+    else
+    {
+        waveletENDIS = true;
+        if (program_stage != 0)
+        {
+            timer_count_wavelet->start(50);
+        }
+        control->ControlWaveletEnable();
+    }
+}
+
+void MainWindow::startTimersPlot()
+{
+    timer_count_plot->start(20);
+
+    if (waveletENDIS)
+    {
+        timer_count_wavelet->start(50);
+    }
+
+    timer_count_check->start(1000);
+}
+void MainWindow::stopTimersPlot()
+{
+    timer_count_plot->stop();
+
+    if (timer_count_wavelet->isActive())
+    {
+        timer_count_wavelet->stop();
+    }
+
+    timer_count_check->stop();
+}
+
+void MainWindow::startSerialPlot()
+{
+    program_stage = 1;
+
+    control->ControlStartSerialPlot(this);
+
+    layout_V->addWidget(control->button_startstop);
+    layout_V->addWidget(control->button_range);
+    layout_V->addWidget(control->input_packetswrite);
+
+    connect(control->button_startstop, &QPushButton::clicked, m_rwfile_worker, &RWFile::recStartStopHndlr);
+    connect(control->button_range, &QPushButton::clicked, m_rwfile_worker, &RWFile::recRangeHndlr);
+
+    connect(m_serial_worker, &SerialPortWorker::dataReceived, this, &MainWindow::handleData);
+    connect(m_serial_worker, &SerialPortWorker::errorOccurred, this, &MainWindow::handleError);
+    connect(this, &MainWindow::destroyedCustom, m_serial_worker, &SerialPortWorker::commandToStopADC);
+    connect(this, &MainWindow::createCustom, m_serial_worker, &SerialPortWorker::commandToStartADC);
+
+    connect(m_rwfile_worker, &RWFile::startStopWriting, control, &ControlEMG::StartStopWriting);
+    connect(m_rwfile_worker, &RWFile::startStopReady, control, &ControlEMG::StartStopReady);
+    connect(m_rwfile_worker, &RWFile::rangeWriting, control, &ControlEMG::RangeWriting);
+    connect(m_rwfile_worker, &RWFile::rangeReady, control, &ControlEMG::RangeReady);
+
+    connect(control, &ControlEMG::getRangeCounterRemain, m_rwfile_worker, &RWFile::setRangeCounterRemain);
+
+    connect(this, &MainWindow::writeBuf, m_rwfile_worker, &RWFile::writeHndlr);
+
+    startTimersPlot();
+
+    emit createCustom();
+}
+
+void MainWindow::stopSerialPlot()
+{
+    program_stage = 0;
+
+    control->ControlStopSerialPlot();
+
+    disconnect(this, &MainWindow::writeBuf, m_rwfile_worker, &RWFile::writeHndlr);
+
+    disconnect(m_rwfile_worker, &RWFile::startStopWriting, control, &ControlEMG::StartStopWriting);
+    disconnect(m_rwfile_worker, &RWFile::startStopReady, control, &ControlEMG::StartStopReady);
+    disconnect(m_rwfile_worker, &RWFile::rangeWriting, control, &ControlEMG::RangeWriting);
+    disconnect(m_rwfile_worker, &RWFile::rangeReady, control, &ControlEMG::RangeReady);
+
+    disconnect(control->button_startstop, &QPushButton::clicked, m_rwfile_worker, &RWFile::recStartStopHndlr);
+    disconnect(control->button_range, &QPushButton::clicked, m_rwfile_worker, &RWFile::recRangeHndlr);
+
+    layout_V->removeWidget(control->button_startstop);
+    layout_V->removeWidget(control->button_range);
+    layout_V->removeWidget(control->input_packetswrite);
+
+    delete control->button_startstop;
+    delete control->button_range;
+    delete control->input_packetswrite;
+
+    disconnect(m_serial_worker, &SerialPortWorker::dataReceived, this, &MainWindow::handleData);
+    disconnect(m_serial_worker, &SerialPortWorker::errorOccurred, this, &MainWindow::handleError);
+
+    stopTimersPlot();
+
+    emit destroyedCustom();
+
+    disconnect(this, &MainWindow::destroyedCustom, m_serial_worker, &SerialPortWorker::commandToStopADC);
+    disconnect(this, &MainWindow::createCustom, m_serial_worker, &SerialPortWorker::commandToStartADC);
+
+    resetPlotData();
+
+    updatePlot();
+    updateWavelet();
+}
+
+void MainWindow::startFilePlot()
+{
+    program_stage = 2;
+    m_rwfile_worker->fileselect = false;
+    m_rwfile_worker->playpause = false;
+
+    control->ControlStartFilePlot(this);
+
+    layout_V->addWidget(control->button_select);
+    layout_V->addWidget(control->button_playpause);
+    layout_V->addWidget(control->read_filename);
+
+    connect(control->button_select, &QPushButton::clicked, m_rwfile_worker, &RWFile::selectFileHndlr);
+    connect(control->button_playpause, &QPushButton::clicked, m_rwfile_worker, &RWFile::playPauseHndlr);
+
+    connect(m_rwfile_worker, &RWFile::dataRead, this, &MainWindow::handleData);
+    connect(m_rwfile_worker, &RWFile::plotStart, this, &MainWindow::startTimersPlot);
+    connect(m_rwfile_worker, &RWFile::plotStop, this, &MainWindow::stopTimersPlot);
+    connect(m_rwfile_worker, &RWFile::plotDataClear, this, &MainWindow::resetPlotData);
+
+    connect(m_rwfile_worker, &RWFile::buttonPause, control, &ControlEMG::ButtonPause);
+    connect(m_rwfile_worker, &RWFile::buttonPlay, control, &ControlEMG::ButtonPlay);
+    connect(m_rwfile_worker, &RWFile::buttonSelectEN, control, &ControlEMG::ButtonSelectEN);
+    connect(m_rwfile_worker, &RWFile::buttonSelectDIS, control, &ControlEMG::ButtonSelectDIS);
+
+    connect(m_rwfile_worker, &RWFile::fileNameGet, control, &ControlEMG::fileNameHndlr);
+    connect(control, &ControlEMG::fileNameSet, m_rwfile_worker, &RWFile::openFileHndlr);
+}
+
+void MainWindow::stopFilePlot()
+{
+    program_stage = 0;
+
+    if (m_rwfile_worker->playpause)
+    {
+        emit timerReadStop();
+
+        stopTimersPlot();
+    }
+
+    control->ControlStopFilePlot();
+
+    disconnect(control->button_select, &QPushButton::clicked, m_rwfile_worker, &RWFile::selectFileHndlr);
+    disconnect(control->button_playpause, &QPushButton::clicked, m_rwfile_worker, &RWFile::playPauseHndlr);
+
+    disconnect(m_rwfile_worker, &RWFile::dataRead, this, &MainWindow::handleData);
+    disconnect(m_rwfile_worker, &RWFile::plotStart, this, &MainWindow::startTimersPlot);
+    disconnect(m_rwfile_worker, &RWFile::plotStop, this, &MainWindow::stopTimersPlot);
+    disconnect(m_rwfile_worker, &RWFile::plotDataClear, this, &MainWindow::resetPlotData);
+
+    layout_V->removeWidget(control->button_select);
+    layout_V->removeWidget(control->button_playpause);
+    layout_V->removeWidget(control->read_filename);
+
+    delete control->button_select;
+    delete control->button_playpause;
+    delete control->read_filename;
+
+    disconnect(m_rwfile_worker, &RWFile::buttonPause, control, &ControlEMG::ButtonPause);
+    disconnect(m_rwfile_worker, &RWFile::buttonPlay, control, &ControlEMG::ButtonPlay);
+    disconnect(m_rwfile_worker, &RWFile::buttonSelectEN, control, &ControlEMG::ButtonSelectEN);
+    disconnect(m_rwfile_worker, &RWFile::buttonSelectDIS, control, &ControlEMG::ButtonSelectDIS);
+
+    disconnect(m_rwfile_worker, &RWFile::fileNameGet, control, &ControlEMG::fileNameHndlr);
+    disconnect(control, &ControlEMG::fileNameSet, m_rwfile_worker, &RWFile::openFileHndlr);
+
+    resetPlotData();
+
+    updatePlot();
+    updateWavelet();
+}
+
+void MainWindow::checkData()
+{
+    qDebug()<<count_plot << " count_plot|| "<<count_check << " count_data"  << count_wavelet << " count_wavelet";
+    count_check = 0;
     count_plot = 0;
     count_wavelet = 0;
 }
@@ -176,80 +422,14 @@ void MainWindow::handleData(const QVector<uint16_t>& buf)
     QVector<uint16_t>::ConstIterator buf_i = buf.begin();
     QList<QQueue<double>>::Iterator data_signals_i = data_signals.begin();
 
-    //DEBUG----------------------------------
-    // switch (sin_curr)
-    // {
-    // case 0:
-    //     if (countdown==0)
-    //     {
-    //         sin_curr = 1;
-    //     }
-    //     else
-    //     {
-    //         countdown--;
-    //     }
-    //     break;
-    // case 1:
-    //     if (countdown==0)
-    //     {
-    //         sin_freq = sin_freq + 4.0;
-    //         countdown = 200;
-    //     }
-    //     else
-    //     {
-    //         countdown--;
-    //     }
-    //     if (sin_freq>980.0)
-    //     {
-    //         sin_curr = 2;
-    //         countdown=0;
-    //     }
-    //     break;
-    // case 2:
-    //     if (countdown==14000)
-    //     {
-    //         sin_curr = 3;
-    //     }
-    //     else
-    //     {
-    //         countdown++;
-    //     }
-    //     break;
-    // case 3:
-    //     if (countdown==0)
-    //     {
-    //         sin_freq = sin_freq - 4.0;
-    //         countdown = 200;
-    //     }
-    //     else
-    //     {
-    //         countdown--;
-    //     }
-    //     if (sin_freq<20.0)
-    //     {
-    //         sin_curr = 0;
-    //         countdown=14000;
-    //     }
-    //     break;
-    // }
-    // double add_sin = 0.0;
-    // sin_count=sin_count+1.0;
-    // add_sin = 1000*qSin(M_PI*sin_freq*sin_count*(1/(double)1000));
-    // if ( (uint16_t)sin_freq % 100 == 0)
-    // {
-    //     qDebug() <<sin_freq << " | " <<sin_count;
-    // }
-    //~DEBUG----------------------------------
-
     while (data_signals_i != data_signals.end() && buf_i != buf.constEnd())
     {
         (*data_signals_i).enqueue(*buf_i );
-        //DEBUG//(*data_signals_i).enqueue(1000.0 + add_sin);//~DEBUG
         ++data_signals_i;
         ++buf_i;
     }
-    rwfile->writeHndlr(buf);
-    count_send = count_send +1;
+    emit writeBuf(buf);
+    count_check = count_check +1;
 }
 
 void MainWindow::handleError(const QString &error)
@@ -258,7 +438,6 @@ void MainWindow::handleError(const QString &error)
 }
 
 void MainWindow::updatePlot() {
-
     uint32_t mult = (data_signals.at(0).size()-6000)/200 + 1;
     for (uint64_t i = 0; i<80*mult; i++)
     {
@@ -301,10 +480,10 @@ void MainWindow::updateWavelet() {
     {
         while (data_signals_i != data_signals.end())
         {
-            auto data_signals_i_it = (*data_signals_i).begin() + (6000  - 2048);
+            auto data_signals_i_it = (*data_signals_i).begin() + (6000  - 1024);
             fftw_complex* sample_fft_in_ptr = (*stft_cell_i).sample_fft_in;
             uint16_t i = 0;
-            while (i < 2048)
+            while (i < 1024)
             {
                 (*sample_fft_in_ptr)[0] = (double)(*data_signals_i_it);
                 (*sample_fft_in_ptr)[1] = 0.0;

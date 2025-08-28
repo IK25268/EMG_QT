@@ -100,7 +100,7 @@ void processSingleQueue(wavelet_cell* wavelet_cell_, QList<WwltConf>* wawelets_M
         //     + sqrt(  pow(each_freq_cell__for_freq->freq_pos_value[1].real, 2) + pow(each_freq_cell__for_freq->freq_pos_value[1].imag, 2)  )  )   /  ( (double)( 4000.0 ) );
 
         each_freq_cell__for_freq->freq_value_mean = ( sqrt(  pow(each_freq_cell__for_freq->freq_pos_value[0].real, 2) + pow(each_freq_cell__for_freq->freq_pos_value[0].imag, 2)  )
-                                                       )   /  ( (double)( 4000.0 ) );
+                                                       )   /  ( (double)( 2000.0 ) );
 
         wawelets_Morle_fft__for_freq++;
         each_freq_cell__for_freq++;
@@ -147,4 +147,5 @@ void multiplCompl(EachFreqCell& each_freq_cell__for_freq_, WwltConf& wawelets_Mo
         ptr_to_left_copy++;
     }
 
+        //qDebug() << i;
 }
